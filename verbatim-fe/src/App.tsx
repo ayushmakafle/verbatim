@@ -91,10 +91,29 @@ export default function App() {
   }
 
   async function handleSummarize() {
+    if (!transcript.trim()) return;
+
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setSummary("(Summary will come from the backend in Step 3)");
-    setIsLoading(false);
+    setError("");
+    setSummary("");
+
+    try {
+      const res = await fetch("http://localhost:3001/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error);
+
+      setSummary(data.summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
