@@ -7,6 +7,8 @@ import { useRef, useState } from "react";
 
 type Status = "idle" | "recording" | "transcribing" | "done";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 declare global {
   interface Window {
     SpeechRecognition: typeof SpeechRecognition;
@@ -106,7 +108,7 @@ export default function App() {
     formData.append("audio", blob, "recording.webm");
 
     try {
-      const res = await fetch("http://localhost:3001/api/transcribe", {
+      const res = await fetch(`${API_URL}/api/transcribe`, {
         method: "POST",
         body: formData,
       });
@@ -131,7 +133,7 @@ export default function App() {
     setSummary("");
 
     try {
-      const res = await fetch("http://localhost:3001/api/summarize", {
+      const res = await fetch(`${API_URL}/api/summarize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcript }),
