@@ -1,8 +1,12 @@
-// Props:
-//   isRecording: boolean
-//   onClick: function
+interface MicButtonProps {
+  isRecording?: boolean;
+  onClick: () => void;
+}
 
-export default function MicButton({ isRecording = false, onClick }) {
+export default function MicButton({
+  isRecording = false,
+  onClick,
+}: MicButtonProps) {
   return (
     <div className="flex flex-col items-center gap-2.5 py-2">
       <button

@@ -1,13 +1,17 @@
-// Props:
-//   status: "idle" | "recording" | "done"
+type Status = "idle" | "recording" | "done";
 
-const badgeStyles = {
+interface HeaderProps {
+  status?: Status;
+}
+
+// Record<Status, string> ensures we handle every possible status type
+const badgeStyles: Record<Status, string> = {
   idle: "border-gray-200 text-gray-400",
   recording: "border-red-400 text-red-400",
   done: "border-green-400 text-green-500",
 };
 
-export default function Header({ status = "idle" }) {
+export default function Header({ status = "idle" }: HeaderProps) {
   return (
     <header className="flex justify-between items-center mb-7">
       <div>

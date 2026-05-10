@@ -1,9 +1,14 @@
-// Props:
-//   disabled: boolean
-//   isLoading: boolean
-//   onClick: function
+interface SummarizeButtonProps {
+  disabled?: boolean;
+  isLoading: boolean;
+  onClick: () => void;
+}
 
-export default function SummarizeButton({ disabled, isLoading, onClick }) {
+export default function SummarizeButton({
+  disabled = false,
+  isLoading,
+  onClick,
+}: SummarizeButtonProps) {
   return (
     <button
       onClick={onClick}
