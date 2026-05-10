@@ -1,13 +1,13 @@
-type Status = "idle" | "recording" | "done";
+type Status = "idle" | "recording" | "transcribing" | "done";
 
 interface HeaderProps {
   status?: Status;
 }
 
-// Record<Status, string> ensures we handle every possible status type
-const badgeStyles: Record<Status, string> = {
+const badgeStyles = {
   idle: "border-gray-200 text-gray-400",
   recording: "border-red-400 text-red-400",
+  transcribing: "border-yellow-400 text-yellow-500",
   done: "border-green-400 text-green-500",
 };
 

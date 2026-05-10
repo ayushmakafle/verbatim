@@ -5,7 +5,7 @@ import SummarizeButton from "./components/SummarizeButton";
 import SummaryPanel from "./components/SummaryPanel";
 import { useRef, useState } from "react";
 
-type Status = "idle" | "recording" | "done";
+type Status = "idle" | "recording" | "transcribing" | "done";
 
 declare global {
   interface Window {
@@ -17,77 +17,69 @@ declare global {
 export default function App() {
   const [status, setStatus] = useState<Status>("idle");
   const [transcript, setTranscript] = useState("");
-  const [interimText, setInterimText] = useState("");
   const [summary, setSummary] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const finalRef = useRef("");
-
-  function startRecording() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SR) {
-      setError("Web Speech API not supported. Use Chrome or Edge.");
-      return;
-    }
-
-    finalRef.current = "";
-    setTranscript("");
-    setInterimText("");
-    setSummary("");
+  async function startRecording() {
     setError("");
+    setTranscript("");
+    setSummary("");
+    chunksRef.current = [];
 
-    const recognition = new SR();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
 
-    recognition.onresult = (e: SpeechRecognitionEvent) => {
-      let interim = "";
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
 
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const chunk = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          finalRef.current += chunk + " ";
-        } else {
-          interim += chunk;
-        }
-      }
+      recorder.onstop = async () => {
+        // Stop all mic tracks so the browser releases the mic
+        stream.getTracks().forEach((t) => t.stop());
+        await transcribeAudio();
+      };
 
-      setTranscript(finalRef.current);
-      setInterimText(interim);
-    };
-
-    recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-      setError(`Mic error: ${e.error}`);
-      stopRecording();
-    };
-
-    recognition.onend = () => {
-      if (recognitionRef.current) recognition.start();
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setStatus("recording");
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setStatus("recording");
+    } catch (err) {
+      setError("Microphone access denied.");
+    }
   }
 
   function stopRecording() {
-    if (!recognitionRef.current) return;
-
-    const rec = recognitionRef.current;
-    recognitionRef.current = null;
-    rec.onend = null;
-    rec.stop();
-
-    setInterimText("");
-    setStatus(finalRef.current.trim() ? "done" : "idle");
+    mediaRecorderRef.current?.stop();
+    setStatus("transcribing");
   }
 
   function handleMicClick() {
     status === "recording" ? stopRecording() : startRecording();
+  }
+
+  async function transcribeAudio() {
+    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+    const formData = new FormData();
+    formData.append("audio", blob, "recording.webm");
+
+    try {
+      const res = await fetch("http://localhost:3001/api/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setTranscript(data.transcript);
+      setStatus("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transcription failed.");
+      setStatus("idle");
+    }
   }
 
   async function handleSummarize() {
@@ -105,12 +97,11 @@ export default function App() {
       });
 
       const data = await res.json();
-
       if (!res.ok) throw new Error(data.error);
 
       setSummary(data.summary);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setIsLoading(false);
     }
@@ -123,9 +114,10 @@ export default function App() {
         <main className="flex flex-col gap-4">
           <MicButton
             isRecording={status === "recording"}
+            isTranscribing={status === "transcribing"}
             onClick={handleMicClick}
           />
-          <TranscriptPanel transcript={transcript} interimText={interimText} />
+          <TranscriptPanel transcript={transcript} interimText="" />
           <SummarizeButton
             disabled={!transcript.trim()}
             isLoading={isLoading}
