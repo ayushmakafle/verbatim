@@ -3,6 +3,8 @@
 //   isLoading: boolean
 //   error: string
 
+import ReactMarkdown from "react-markdown";
+
 export default function SummaryPanel({
   summary = "",
   isLoading = false,
@@ -37,7 +39,19 @@ export default function SummaryPanel({
         </p>
       )}
       {!isLoading && !error && summary && (
-        <p className="text-sm text-gray-800 leading-relaxed">{summary}</p>
+        <div
+          className="text-sm text-gray-800 leading-relaxed
+                     [&_p]:mb-2 [&_p:last-child]:mb-0
+                     [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ul]:mb-2
+                     [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_ol]:mb-2
+                     [&_strong]:font-semibold [&_strong]:text-gray-900
+                     [&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2
+                     [&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-2
+                     [&_code]:bg-gray-100 [&_code]:rounded [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs
+                     [&_a]:text-blue-600 [&_a]:underline"
+        >
+          <ReactMarkdown>{summary}</ReactMarkdown>
+        </div>
       )}
     </div>
   );
