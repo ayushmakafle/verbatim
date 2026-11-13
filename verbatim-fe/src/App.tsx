@@ -73,6 +73,17 @@ export default function App() {
           setLiveText(liveTextRef.current + interim);
         };
 
+        recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+          console.warn(`SpeechRecognition error: ${e.error}`, e.message);
+          // no-speech/aborted are benign and self-recover; surface the rest
+          if (e.error === "no-speech" || e.error === "aborted") return;
+          // fatal errors: stop the onend restart loop so it can't spin
+          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+            recognitionRef.current = null;
+          }
+          setError(`Live transcription unavailable (${e.error}) — recording still works.`);
+        };
+
         recognition.onend = () => {
           if (recognitionRef.current) recognition.start();
         };
