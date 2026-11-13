@@ -9,25 +9,20 @@ type Status = "idle" | "recording" | "transcribing" | "done";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
-  }
-}
+// How often MediaRecorder emits a chunk and we refresh the live transcript.
+const LIVE_INTERVAL_MS = 4000;
 
 export default function App() {
   const [status, setStatus] = useState<Status>("idle");
-  const [liveText, setLiveText] = useState(""); // Web Speech API — shown while recording
+  const [liveText, setLiveText] = useState(""); // Whisper partials — shown while recording
   const [transcript, setTranscript] = useState(""); // Whisper final — shown after stop
   const [summary, setSummary] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const liveTextRef = useRef(""); // mirrors liveText for use inside callbacks
+  const liveInFlightRef = useRef(false); // guards against overlapping live requests
 
   async function startRecording() {
     setError("");
@@ -35,62 +30,28 @@ export default function App() {
     setLiveText("");
     setSummary("");
     chunksRef.current = [];
-    liveTextRef.current = "";
+    liveInFlightRef.current = false;
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+          // best-effort live refresh; final transcription still runs on stop
+          void updateLiveTranscript();
+        }
       };
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         await transcribeAudio();
       };
+
       mediaRecorderRef.current = recorder;
-      recorder.start();
-
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SR) {
-        const recognition = new SR();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = "en-US";
-
-        recognition.onresult = (e: SpeechRecognitionEvent) => {
-          let interim = "";
-          for (let i = e.resultIndex; i < e.results.length; i++) {
-            const chunk = e.results[i][0].transcript;
-            if (e.results[i].isFinal) {
-              liveTextRef.current += chunk + " ";
-            } else {
-              interim += chunk;
-            }
-          }
-          // show live text while user speaks — Whisper will replace this on stop
-          setLiveText(liveTextRef.current + interim);
-        };
-
-        recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-          console.warn(`SpeechRecognition error: ${e.error}`, e.message);
-          // no-speech/aborted are benign and self-recover; surface the rest
-          if (e.error === "no-speech" || e.error === "aborted") return;
-          // fatal errors: stop the onend restart loop so it can't spin
-          if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-            recognitionRef.current = null;
-          }
-          setError(`Live transcription unavailable (${e.error}) — recording still works.`);
-        };
-
-        recognition.onend = () => {
-          if (recognitionRef.current) recognition.start();
-        };
-
-        recognitionRef.current = recognition;
-        recognition.start();
-      }
+      // timeslice makes ondataavailable fire every LIVE_INTERVAL_MS
+      recorder.start(LIVE_INTERVAL_MS);
 
       setStatus("recording");
     } catch {
@@ -99,12 +60,6 @@ export default function App() {
   }
 
   function stopRecording() {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null;
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-
     mediaRecorderRef.current?.stop();
     setStatus("transcribing");
   }
@@ -113,22 +68,48 @@ export default function App() {
     status === "recording" ? stopRecording() : startRecording();
   }
 
-  async function transcribeAudio() {
-    const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+  // POST the given audio to Groq Whisper and return the transcript text.
+  async function postTranscribe(blob: Blob): Promise<string> {
     const formData = new FormData();
     formData.append("audio", blob, "recording.webm");
 
+    const res = await fetch(`${API_URL}/api/transcribe`, {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data.transcript;
+  }
+
+  // Re-transcribe the audio captured so far to update the live text.
+  // Sends the accumulated blob (webm chunks aren't independently decodable).
+  async function updateLiveTranscript() {
+    if (liveInFlightRef.current) return; // skip if one is already running
+    liveInFlightRef.current = true;
+
     try {
-      const res = await fetch(`${API_URL}/api/transcribe`, {
-        method: "POST",
-        body: formData,
-      });
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const text = await postTranscribe(blob);
+      // ignore late responses that land after the user stopped recording
+      if (mediaRecorderRef.current?.state === "recording") {
+        setLiveText(text);
+      }
+    } catch {
+      // live updates are best-effort — swallow and let the final pass report errors
+    } finally {
+      liveInFlightRef.current = false;
+    }
+  }
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
+  // Final transcription of the full recording, run once on stop.
+  async function transcribeAudio() {
+    try {
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const text = await postTranscribe(blob);
       setLiveText("");
-      setTranscript(data.transcript);
+      setTranscript(text);
       setStatus("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transcription failed.");
