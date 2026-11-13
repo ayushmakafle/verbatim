@@ -15,6 +15,10 @@ app.use(express.json());
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Model IDs live in env so a retired model is a config change, not a code change
+const SUMMARY_MODEL = process.env.SUMMARY_MODEL ?? "openai/gpt-oss-120b";
+const TRANSCRIBE_MODEL = process.env.TRANSCRIBE_MODEL ?? "whisper-large-v3-turbo";
+
 // multer stores the upload in memory as a Buffer
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -58,7 +62,7 @@ app.post(
 
       const transcription = await groq.audio.transcriptions.create({
         file,
-        model: "whisper-large-v3-turbo",
+        model: TRANSCRIBE_MODEL,
         response_format: "json",
       });
 
@@ -89,7 +93,7 @@ app.post(
 
     try {
       const completion = await groq.chat.completions.create({
-        model: "openai/gpt-oss-120b",
+        model: SUMMARY_MODEL,
         max_tokens: 512,
         messages: [
           {
